@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"math/rand"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -111,9 +110,6 @@ type Service struct {
 	wsResyncPending  atomic.Bool
 	wsStatusSeen     atomic.Bool
 	wsConnected      atomic.Bool
-	wsEverConnected  atomic.Bool
-	wsStatusVersion  atomic.Uint64
-	wsReconnectDelay func() time.Duration
 	machineMailbox   *controlplane.NodeMailbox
 	machineMailboxCh <-chan struct{}
 
@@ -876,11 +872,10 @@ func (s *Service) startWSClient(ctx context.Context) {
 	// Machine-mode nodes may register after the shared WS mux is already
 	// connected and therefore miss its initial connected notification. Seed the
 	// local status so the next disconnect/reconnect is still treated as a real
-	// reconnect and receives delayed reconciliation.
+	// transition.
 	if s.wsClient.IsConnected() {
 		s.wsStatusSeen.Store(true)
 		s.wsConnected.Store(true)
-		s.wsEverConnected.Store(true)
 	} else {
 		s.metricsMu.Lock()
 		if s.wsDisconnectAt.IsZero() {
@@ -978,41 +973,6 @@ func (s *Service) handleWSStatus(ctx context.Context, status controlplane.Status
 		}
 		s.pullViaAPIAsync(ctx)
 	}
-}
-
-const (
-	wsReconnectReconcileMinDelay = 5 * time.Second
-	wsReconnectReconcileJitter   = 25 * time.Second
-)
-
-func (s *Service) nextWSReconnectDelay() time.Duration {
-	if s.wsReconnectDelay != nil {
-		return s.wsReconnectDelay()
-	}
-	return wsReconnectReconcileMinDelay + time.Duration(rand.Int63n(int64(wsReconnectReconcileJitter)))
-}
-
-func (s *Service) scheduleWSReconnectReconcile(ctx context.Context, version uint64) {
-	delay := s.nextWSReconnectDelay()
-	if s.nodeLog != nil {
-		s.nodeLog.Info("ws reconnected, scheduling REST reconciliation", "delay", delay)
-	} else {
-		nlog.Core().Info("ws reconnected, scheduling REST reconciliation", "delay", delay)
-	}
-
-	go func() {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-		select {
-		case <-ctx.Done():
-			return
-		case <-timer.C:
-		}
-		if s.wsStatusVersion.Load() != version || !s.wsConnected.Load() {
-			return
-		}
-		s.pullViaAPIAsync(ctx)
-	}()
 }
 
 // wsDiscovery periodically checks WS availability:
