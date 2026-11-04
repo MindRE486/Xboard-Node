@@ -32,7 +32,12 @@ func newRotationXray(t *testing.T, users []model.UserSpec) (*Xray, string) {
 	addr := reservation.Addr().String()
 	port := reservation.Addr().(*net.TCPAddr).Port
 	reservation.Close()
-	x := New(config.KernelConfig{Type: "xray", LogLevel: "error", CustomRoute: []map[string]any{{"type": "field", "ip": []string{"127.0.0.1/32"}, "outboundTag": "direct"}}})
+	x := New(config.KernelConfig{
+		Type:           "xray",
+		LogLevel:       "error",
+		CustomRoute:    []map[string]any{{"type": "field", "ip": []string{"127.0.0.1/32"}, "outboundTag": "direct"}},
+		CustomOutbound: loopbackFreedomOutbound(),
+	})
 	nc := &model.NodeSpec{Protocol: "vless", ListenIP: "127.0.0.1", ServerPort: port, Network: "tcp"}
 	if err := x.Start(nc, users, kernel.TLSCert{}); err != nil {
 		t.Fatalf("start VLESS: %v", err)

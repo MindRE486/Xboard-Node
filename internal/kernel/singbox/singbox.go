@@ -229,7 +229,7 @@ func (s *SingBox) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls 
 func recycleOldBox(oldBox *box.Box, oldCancel context.CancelFunc, oldCtx context.Context, oldTracker *ConnTracker) {
 	// Step 1: close listen sockets so no new connections arrive on old ports.
 	if im := service.FromContext[adapter.InboundManager](oldCtx); im != nil {
-		_ = im.Close()
+		closeInboundListeners(im)
 	}
 
 	// Step 2: drain in-flight connections (best-effort).
@@ -249,6 +249,29 @@ func recycleOldBox(oldBox *box.Box, oldCancel context.CancelFunc, oldCtx context
 		oldCancel()
 	}
 	nlog.Core().Debug("sing-box: old instance recycled")
+}
+
+// closeInboundListeners stops every inbound so its port is released before a
+// drain. sing-box v1.14 closes components through the manager scope, and
+// Remove is the exported way to do that for one inbound.
+func closeInboundListeners(im adapter.InboundManager) {
+	for {
+		inbounds := im.Inbounds()
+		if len(inbounds) == 0 {
+			return
+		}
+		stopped := false
+		for _, inbound := range inbounds {
+			if err := im.Remove(inbound.Tag()); err != nil {
+				nlog.Core().Debug("sing-box: close inbound", "tag", inbound.Tag(), "error", err)
+				continue
+			}
+			stopped = true
+		}
+		if !stopped {
+			return
+		}
+	}
 }
 
 // Reload hot-swaps the inbound users and routing rules without restarting the box.
@@ -476,11 +499,11 @@ func (s *SingBox) stop() {
 	}
 
 	// Step 1: close all listen sockets so no new connections are accepted.
-	// im.Close() sets m.started=false so the subsequent box.Close() call is a no-op
-	// for inbounds (avoids double-close), but box.Close() still tears down routers
-	// and outbounds.
+	// inbounds are stopped through the manager scope, so they can be created
+	// again on the same port; box.Close() still tears down routers and
+	// outbounds.
 	if im := service.FromContext[adapter.InboundManager](s.ctx); im != nil {
-		_ = im.Close()
+		closeInboundListeners(im)
 	}
 
 	// Step 2: wait for in-flight connections to drain naturally (best-effort).

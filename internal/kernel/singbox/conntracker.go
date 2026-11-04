@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sagernet/sing-box/adapter"
+	"github.com/sagernet/sing-tun"
 	"github.com/sagernet/sing/common/buf"
 	singM "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
@@ -328,6 +329,14 @@ func (t *ConnTracker) RoutedConnection(
 		return conn
 	}
 	return tracked
+}
+
+// RoutedFlow returns no flow tracker: TUN flows are not used by this node.
+func (t *ConnTracker) RoutedFlow(
+	_ context.Context, _ adapter.InboundContext,
+	_ adapter.Rule, _ adapter.Outbound,
+) tun.FlowTracker {
+	return nil
 }
 
 // RoutedPacketConnection wraps UDP with per-user counting.

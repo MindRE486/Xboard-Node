@@ -38,6 +38,7 @@ import (
 	N "github.com/sagernet/sing/common/network"
 
 	"github.com/cedar2025/xboard-node/internal/cert"
+	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/controlplane"
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/limiter"
@@ -62,7 +63,7 @@ func newRealService(t *testing.T) *Service {
 		source:          src,
 		sink:            src,
 		preferredKernel: model.KernelSingbox,
-		newKernel:       defaultKernelFactory,
+		newKernel:       loopbackXrayKernel,
 		kernels:         make(map[string]kernel.Kernel),
 		tracker:         tracker.New(),
 		limiter:         sharedLimiter,
@@ -76,6 +77,25 @@ func newRealService(t *testing.T) *Service {
 	t.Cleanup(s.stopKernels)
 	t.Cleanup(s.stopRetryTimer)
 	return s
+}
+
+// loopbackXrayKernel builds the production kernel factory but lets the xray
+// kernel reach the loopback origins these tests proxy to. xray-core v26 blocks
+// private destinations from freedom by default (SSRF protection).
+func loopbackXrayKernel(kcfg config.KernelConfig) kernel.Kernel {
+	if kcfg.Type == model.KernelXray {
+		kcfg.CustomOutbound = append(kcfg.CustomOutbound, map[string]any{
+			"tag":      "direct",
+			"protocol": "freedom",
+			"settings": map[string]any{
+				"finalRules": []map[string]any{{
+					"action": "allow",
+					"ip":     []string{"127.0.0.0/8", "::1/128"},
+				}},
+			},
+		})
+	}
+	return defaultKernelFactory(kcfg)
 }
 
 func freePort(t *testing.T) int {

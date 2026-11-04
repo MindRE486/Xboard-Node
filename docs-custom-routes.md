@@ -58,6 +58,26 @@
 | All match conditions | ✅ | ✅ |
 | direct / block / route | ✅ | ✅ |
 
+## Private and Loopback Targets (Xray)
+
+xray-core v26 blocks private and loopback destinations from the built-in
+`direct` (freedom) outbound by default, even when a route rule selects it. The
+generated direct outbound keeps that default. To allow specific ranges, define
+your own `direct` outbound in the local kernel config (the Xray kernel only):
+
+```yaml
+kernel:
+  custom_outbound:
+    - tag: direct
+      protocol: freedom
+      settings:
+        finalRules:
+          - action: allow
+            ip: ["10.0.0.0/8", "192.168.0.0/16"]
+```
+
+Sing-box does not have this restriction and ignores `finalRules`.
+
 ## Best Practices
 
 - **Prefer** `custom_route_rules`: cross-kernel compatible, panel-managed

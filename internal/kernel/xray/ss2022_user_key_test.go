@@ -29,12 +29,15 @@ func TestSS2022MemoryAccountMatchesColdStart(t *testing.T) {
 					t.Fatal(err)
 				}
 				hotKey := account.Account.(*ss2022.MemoryAccount).Key
-				if hotKey != coldKey {
+				coldRaw, err := base64.StdEncoding.DecodeString(coldKey)
+				if err != nil {
+					t.Fatalf("invalid cold-start key: %v", err)
+				}
+				if !bytes.Equal(hotKey, coldRaw) {
 					t.Fatal("hot-update key differs from the working cold-start key")
 				}
-				raw, err := base64.StdEncoding.DecodeString(hotKey)
-				if err != nil || len(raw) != ss2022Methods[cipher].size {
-					t.Fatalf("invalid hot-update key size: %d, err=%v", len(raw), err)
+				if len(hotKey) != ss2022Methods[cipher].size {
+					t.Fatalf("invalid hot-update key size: %d", len(hotKey))
 				}
 			})
 		}
@@ -54,7 +57,11 @@ func TestSS2022UUIDRotationAcceptsNewRejectsOld(t *testing.T) {
 			keySize := ss2022Methods[cipher].size
 			serverKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{42}, keySize))
 			nc := &model.NodeSpec{Protocol: "shadowsocks", Cipher: cipher, ServerKey: serverKey, ListenIP: "127.0.0.1", ServerPort: port}
-			x := New(config.KernelConfig{Type: "xray", CustomRoute: []map[string]any{{"type": "field", "ip": []string{"127.0.0.1/32"}, "outboundTag": "direct"}}})
+			x := New(config.KernelConfig{
+				Type:           "xray",
+				CustomRoute:    []map[string]any{{"type": "field", "ip": []string{"127.0.0.1/32"}, "outboundTag": "direct"}},
+				CustomOutbound: loopbackFreedomOutbound(),
+			})
 			old := model.UserSpec{ID: 1, UUID: rotationOldUUID}
 			if err := x.Start(nc, []model.UserSpec{old}, kernel.TLSCert{}); err != nil {
 				t.Fatal(err)

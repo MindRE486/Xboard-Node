@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -816,10 +815,10 @@ func toMemoryUser(proto string, nc *model.NodeSpec, u model.UserSpec) (*protocol
 
 	case "shadowsocks":
 		if cipher, ok := ss2022Methods[nc.Cipher]; ok {
-			// Match buildShadowsocks: SS2022 needs a fixed-length Base64 key.
+			// Match buildShadowsocks: SS2022 needs a fixed-length raw key.
 			key := make([]byte, cipher.size)
 			copy(key, u.UUID)
-			mu.Account = &ss2022.MemoryAccount{Key: base64.StdEncoding.EncodeToString(key)}
+			mu.Account = &ss2022.MemoryAccount{Key: key}
 		} else {
 			// Traditional SS — build via getCipher path
 			ct := parseCipherType(nc.Cipher)
@@ -849,7 +848,10 @@ func parseCipherType(cipher string) shadowsocks.CipherType {
 	case "xchacha20-ietf-poly1305", "xchacha20-poly1305":
 		return shadowsocks.CipherType_XCHACHA20_POLY1305
 	case "none", "plain":
-		return shadowsocks.CipherType_NONE
+		// xray-core v26.x removed the plain/"none" cipher; report it as
+		// unknown so the caller fails loudly instead of silently switching
+		// the user to another cipher.
+		return shadowsocks.CipherType_UNKNOWN
 	default:
 		return shadowsocks.CipherType_AES_256_GCM
 	}
