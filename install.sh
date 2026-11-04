@@ -471,7 +471,7 @@ on_error() {
     local exit_code=$?
     local line_no=${1:-unknown}
     if [ "$exit_code" -ne 0 ]; then
-        log_error "Install failed at line ${line_no} (exit=${exit_code})"
+        log_error "Install failed at line ${line_no} (exit=${exit_code}): ${BASH_COMMAND}"
         if [ -n "$BACKUP_PATH" ]; then
             rollback_install || true
         fi
@@ -681,35 +681,39 @@ detect_os() {
     fi
 }
 
-run_with_retry() {
-    local attempts="$1"
-    local delay="$2"
-    shift 2
-    local i=1
-    while [ "$i" -le "$attempts" ]; do
-        if "$@"; then
+install_apt_deps() {
+    local attempt output=""
+    for attempt in 1 2 3 4 5; do
+        if output=$(DEBIAN_FRONTEND=noninteractive apt-get update -qq 2>&1) &&
+           output=$(DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl wget ca-certificates 2>&1); then
             return 0
         fi
-        if [ "$i" -lt "$attempts" ]; then
-            log_warn "Command failed, retrying in ${delay}s: $*"
-            sleep "$delay"
+        if [ "$attempt" -lt 5 ]; then
+            log_warn "apt dependency install failed, retrying in 3s (attempt ${attempt}/5)"
+            sleep 3
         fi
-        i=$((i + 1))
     done
+    log_error "apt dependency installation failed:"
+    printf '%s\n' "$output" >&2
     return 1
 }
 
-install_apt_deps() {
-    DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get update -qq
-    DEBIAN_FRONTEND=noninteractive run_with_retry 10 3 apt-get install -y -qq curl wget ca-certificates >/dev/null 2>&1
-}
-
 install_rpm_deps() {
-    if command -v dnf >/dev/null 2>&1; then
-        run_with_retry 5 3 dnf install -y -q curl wget ca-certificates >/dev/null 2>&1
-    else
-        run_with_retry 5 3 yum install -y -q curl wget ca-certificates >/dev/null 2>&1
-    fi
+    local attempt output=""
+    for attempt in 1 2 3 4 5; do
+        if command -v dnf >/dev/null 2>&1; then
+            output=$(dnf install -y -q curl wget ca-certificates 2>&1) && return 0
+        else
+            output=$(yum install -y -q curl wget ca-certificates 2>&1) && return 0
+        fi
+        if [ "$attempt" -lt 5 ]; then
+            log_warn "rpm dependency install failed, retrying in 3s (attempt ${attempt}/5)"
+            sleep 3
+        fi
+    done
+    log_error "rpm dependency installation failed:"
+    printf '%s\n' "$output" >&2
+    return 1
 }
 
 install_apk_deps() {
@@ -717,11 +721,38 @@ install_apk_deps() {
         log_error "apk is required to install dependencies on ${OS}"
         exit 1
     fi
-    # bash is required for the copied installer and for re-running this script.
-    run_with_retry 5 3 apk add --no-cache bash curl wget ca-certificates
+    local attempt output=""
+    for attempt in 1 2 3 4 5; do
+        if output=$(apk add --no-cache bash curl wget ca-certificates 2>&1); then
+            return 0
+        fi
+        if [ "$attempt" -lt 5 ]; then
+            log_warn "apk dependency install failed, retrying in 3s (attempt ${attempt}/5)"
+            sleep 3
+        fi
+    done
+    log_error "apk dependency installation failed:"
+    printf '%s\n' "$output" >&2
+    return 1
+}
+
+# dependencies_ready reports whether the tools and CA bundle this installer
+# needs are already usable. Package managers are only touched when something
+# is actually missing: upgrades on working nodes must not fail because apt,
+# dnf or apk is temporarily unavailable.
+dependencies_ready() {
+    command -v curl >/dev/null 2>&1 || return 1
+    [ -s /etc/ssl/certs/ca-certificates.crt ] && return 0
+    [ -s /etc/pki/tls/certs/ca-bundle.crt ] && return 0
+    [ -s /etc/ssl/cert.pem ] && return 0
+    return 1
 }
 
 install_dependencies() {
+    if dependencies_ready; then
+        return 0
+    fi
+
     local family="unknown"
     case "$OS" in
         ubuntu|debian|devuan|linuxmint|pop|raspbian) family="apt" ;;
