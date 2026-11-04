@@ -66,6 +66,7 @@ func TestDeployExtractsArchiveAndRejectsEscapes(t *testing.T) {
 		"index.html":      "<h1>template</h1>",
 		"assets/app.css":  "body{}",
 		"../escape.txt":   "nope",
+		"/abs.txt":        "nope",
 		"__MACOSX/._junk": "junk",
 	})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +84,9 @@ func TestDeployExtractsArchiveAndRejectsEscapes(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(dir), "escape.txt")); !os.IsNotExist(err) {
 		t.Fatalf("archive entry escaped the site dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "abs.txt")); !os.IsNotExist(err) {
+		t.Fatalf("absolute archive entry was extracted")
 	}
 	if _, err := os.Stat(filepath.Join(dir, "__MACOSX")); !os.IsNotExist(err) {
 		t.Fatalf("macOS metadata was extracted")

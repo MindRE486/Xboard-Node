@@ -155,8 +155,14 @@ func extract(reader *zip.Reader, destDir string) error {
 		if strings.HasPrefix(name, "__MACOSX/") || strings.HasPrefix(path.Base(name), "._") || path.Base(name) == ".DS_Store" {
 			continue
 		}
+		// Reject absolute and parent-traversal names instead of silently
+		// rewriting them, so a hostile archive cannot place files outside
+		// the site root or hide its intent.
+		if strings.HasPrefix(name, "/") || strings.Contains(name, "\\") || strings.Contains("/"+name, "/../") || name == ".." {
+			continue
+		}
 		cleaned := path.Clean("/" + name)
-		if cleaned == "/" || strings.Contains(cleaned, "/../") {
+		if cleaned == "/" {
 			continue
 		}
 		target := filepath.Join(cleanDest, filepath.FromSlash(strings.TrimPrefix(cleaned, "/")))
