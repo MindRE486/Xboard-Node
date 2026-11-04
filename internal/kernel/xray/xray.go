@@ -29,6 +29,7 @@ import (
 
 	_ "github.com/xtls/xray-core/main/distro/all"
 
+	"github.com/cedar2025/xboard-node/internal/camo"
 	"github.com/cedar2025/xboard-node/internal/config"
 	"github.com/cedar2025/xboard-node/internal/kernel"
 	"github.com/cedar2025/xboard-node/internal/kernel/geodata"
@@ -77,6 +78,11 @@ type Xray struct {
 	// running is set after a successful Start and cleared before shutdown.
 	// Atomic so IsRunning / GetConnections never block.
 	running atomic.Bool
+
+	// camoMu serializes decoy-site lifecycle changes; camouflage is the
+	// currently served site (nil when the target has none).
+	camoMu     sync.Mutex
+	camouflage *camo.Server
 }
 
 func New(cfg config.KernelConfig) *Xray {
@@ -148,6 +154,9 @@ func (x *Xray) Validate(nodeConfig *model.NodeSpec, users []model.UserSpec, tls 
 func (x *Xray) Start(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) error {
 	// ── Phase 1: Build config (no shared state) ─────────────────────────
 	x.ensureGeoData(nodeConfig)
+	if err := x.ensureCamouflage(nodeConfig); err != nil {
+		return err
+	}
 
 	inst, ld, err := x.createInstance(nodeConfig, users, tls)
 	if err != nil {
@@ -230,6 +239,9 @@ func (x *Xray) publish(inst *xrayCore.Instance, ld *LimitDispatcher, nodeConfig 
 // restorePrevious rebuilds the previous configuration after a failed
 // replacement, with the latest user set.
 func (x *Xray) restorePrevious(nodeConfig *model.NodeSpec, users []model.UserSpec, tls kernel.TLSCert) {
+	if err := x.ensureCamouflage(nodeConfig); err != nil {
+		nlog.Core().Error("xray: restore previous camouflage site", "error", err)
+	}
 	inst, ld, err := x.createInstance(nodeConfig, users, tls)
 	if err != nil {
 		nlog.Core().Error("xray: rollback to previous config failed", "protocol", nodeConfig.Protocol, "error", err)
@@ -283,6 +295,49 @@ func (x *Xray) Stop() {
 	x.mu.Unlock()
 
 	closeInstance(inst, ld, tag, drainTimeout)
+
+	x.camoMu.Lock()
+	if x.camouflage != nil {
+		if err := x.camouflage.Close(); err != nil {
+			nlog.Core().Warn("xray: close camouflage site", "error", err)
+		}
+		x.camouflage = nil
+	}
+	x.camoMu.Unlock()
+}
+
+// ensureCamouflage starts, reuses, or stops the decoy website so it matches
+// the target. Reusing the running server keeps the unix socket stable across
+// restarts of the proxy instance.
+func (x *Xray) ensureCamouflage(nodeConfig *model.NodeSpec) error {
+	x.camoMu.Lock()
+	defer x.camoMu.Unlock()
+
+	var want *model.CamouflageSpec
+	if nodeConfig != nil {
+		want = nodeConfig.Camouflage
+	}
+	if want == nil {
+		if x.camouflage != nil {
+			_ = x.camouflage.Close()
+			x.camouflage = nil
+		}
+		return nil
+	}
+	key := want.SiteDir + "|" + want.SocketPath
+	if x.camouflage != nil && x.camouflage.Key() == key {
+		return nil
+	}
+	if x.camouflage != nil {
+		_ = x.camouflage.Close()
+		x.camouflage = nil
+	}
+	server, err := camo.Start(want.SocketPath, want.SiteDir)
+	if err != nil {
+		return fmt.Errorf("xray: start camouflage site: %w", err)
+	}
+	x.camouflage = server
+	return nil
 }
 
 func (x *Xray) IsRunning() bool { return x.running.Load() }

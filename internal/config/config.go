@@ -42,7 +42,38 @@ type Config struct {
 	// via GET /api/v2/server/machine/nodes. When set, Panel.NodeID, Nodes
 	// and Panel.Token are ignored; the machine token is used instead.
 	Machine *MachineConfig `yaml:"machine,omitempty"`
+
+	// Camouflage enables a local decoy website for TLS probes. When enabled,
+	// supported nodes (xray + TLS + TCP + VLESS/Trojan) fall back to it for
+	// traffic that is not a valid proxy handshake. nil = disabled/inherit.
+	Camouflage *CamouflageConfig `yaml:"camouflage,omitempty"`
 }
+
+// CamouflageConfig controls the local decoy website that answers TLS probes
+// which are not valid proxy handshakes. The site is served over a private unix
+// socket, so no extra public port or panel-side setting is required.
+type CamouflageConfig struct {
+	// Enabled turns camouflage on. Only nodes whose kernel and protocol can
+	// fall back (see model.NodeSpec.SupportsCamouflage) are wired.
+	Enabled bool `yaml:"enabled"`
+
+	// SiteDir is the static website root. Empty = <kernel.config_dir>/camouflage/www.
+	// A directory containing index.html is used as-is and never overwritten.
+	SiteDir string `yaml:"site_dir,omitempty"`
+
+	// Template selects one of the v2ray-agent decoy templates (1-9).
+	// 0 = pick a random template on first deployment.
+	Template int `yaml:"template,omitempty"`
+
+	// TemplateBaseURL overrides where html<N>.zip templates are downloaded
+	// from. Empty = the v2ray-agent master branch on GitHub.
+	TemplateBaseURL string `yaml:"template_base_url,omitempty"`
+}
+
+// DefaultCamouflageTemplateBaseURL is where the v2ray-agent decoy templates
+// live. The templates are downloaded at runtime, never vendored.
+const DefaultCamouflageTemplateBaseURL = "https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable"
+
 
 // MachineConfig identifies this process as a panel-managed machine that
 // dynamically discovers and runs all nodes bound to it.
@@ -544,6 +575,11 @@ func (c *Config) inheritFrom(parent *Config) {
 	if c.Cert.KeyContent == "" {
 		c.Cert.KeyContent = parent.Cert.KeyContent
 	}
+	// Camouflage: nil means inherit; a non-nil block is an explicit choice.
+	if c.Camouflage == nil && parent.Camouflage != nil {
+		camouflageCopy := *parent.Camouflage
+		c.Camouflage = &camouflageCopy
+	}
 	// Only inherit AutoTLS when the child has no explicit cert configuration.
 	// A child with cert_mode, cert_file, or cert_content explicitly chooses
 	// its own cert strategy — inheriting auto_tls would override that choice.
@@ -577,6 +613,14 @@ func (c *Config) setDefaultsFrom(baseDir string) {
 	}
 	if c.Cert.HTTPPort == 0 {
 		c.Cert.HTTPPort = 80
+	}
+	if c.Camouflage != nil {
+		if c.Camouflage.SiteDir == "" {
+			c.Camouflage.SiteDir = filepath.Join(c.Kernel.ConfigDir, "camouflage", "www")
+		}
+		if c.Camouflage.TemplateBaseURL == "" {
+			c.Camouflage.TemplateBaseURL = DefaultCamouflageTemplateBaseURL
+		}
 	}
 	// WS defaults
 	if c.WS.StatusInterval == 0 {
@@ -734,6 +778,9 @@ func (c *Config) validate() error {
 	}
 	if c.Cert.AutoTLS && c.Cert.Domain == "" {
 		return fmt.Errorf("cert.domain is required when cert.auto_tls is enabled")
+	}
+	if c.Camouflage != nil && (c.Camouflage.Template < 0 || c.Camouflage.Template > 9) {
+		return fmt.Errorf("camouflage.template must be 0 (random) or 1-9, got %d", c.Camouflage.Template)
 	}
 	if c.Node.PushInterval < 0 {
 		return fmt.Errorf("node.push_interval must not be negative")

@@ -45,6 +45,32 @@ type NodeSpec struct {
 
 	Multiplex           *MultiplexConfig
 	AcceptProxyProtocol bool
+
+	// Camouflage is set by the service for nodes that answer TLS probes with a
+	// local decoy website. It is local state, never sent by the panel.
+	Camouflage *CamouflageSpec
+}
+
+// CamouflageSpec points a kernel fallback at a local decoy site.
+type CamouflageSpec struct {
+	// SiteDir is the static website root served to probes.
+	SiteDir string
+	// SocketPath is the unix socket the decoy HTTP server listens on.
+	SocketPath string
+}
+
+// SupportsCamouflage reports whether the node can fall back to a decoy site.
+// Xray fallbacks exist for the TLS-terminated TCP inbounds of VLESS and
+// Trojan; transports such as ws/gRPC negotiate their own HTTP and cannot use
+// this fallback. The kernel must also be xray.
+func (n *NodeSpec) SupportsCamouflage() bool {
+	if n == nil || n.TLS != 1 {
+		return false
+	}
+	if n.Network != "" && n.Network != "tcp" {
+		return false
+	}
+	return n.Protocol == "vless" || n.Protocol == "trojan"
 }
 
 type OutboundConfig struct {
@@ -228,6 +254,10 @@ func CloneNodeSpec(spec *NodeSpec) *NodeSpec {
 				SourcePorts:    copyStrings(rule.Match.SourcePorts),
 			}
 		}
+	}
+	if spec.Camouflage != nil {
+		camouflageCopy := *spec.Camouflage
+		clone.Camouflage = &camouflageCopy
 	}
 	if spec.CertConfig != nil {
 		certCopy := *spec.CertConfig

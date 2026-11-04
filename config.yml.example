@@ -25,3 +25,13 @@
 #       token: "machine-token-2"
 #     log:
 #       level: "debug"   # override for this instance only
+
+# ── Camouflage site (optional) ──
+# Serves a decoy website to TLS probes that are not valid proxy handshakes.
+# Supported nodes: xray + TLS + TCP + VLESS/Trojan. No extra public port is
+# opened and the panel does not need to know about it.
+# camouflage:
+#   enabled: true
+#   template: 0            # 0 = random, 1-9 = v2ray-agent template
+#   # site_dir: /srv/www   # existing site root; index.html here is never replaced
+#   # template_base_url: https://raw.githubusercontent.com/mack-a/v2ray-agent/master/fodder/blog/unable

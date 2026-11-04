@@ -67,6 +67,7 @@ Legacy single-panel configuration files are supported. Appending bindings auto-m
 - Custom routes: [docs-custom-routes.md](docs-custom-routes.md)
 - Custom outbounds: [docs-custom-outbounds.md](docs-custom-outbounds.md)
 - DNS providers (ACME DNS-01): [docs-dns-providers.md](docs-dns-providers.md)
+- Camouflage site (TLS probe decoy): see the `camouflage:` section in [config.yml.example](config.yml.example)
 
 ## License
 

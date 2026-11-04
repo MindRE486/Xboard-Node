@@ -600,3 +600,50 @@ func TestBuildInbound_HTTP_PlainKeepsProxyProtocol(t *testing.T) {
 		t.Fatalf("proxy protocol dropped for plain http: %v", ss)
 	}
 }
+
+func TestBuildInbound_CamouflageFallbackForTLSTCP(t *testing.T) {
+	for _, protocol := range []string{"vless", "trojan"} {
+		t.Run(protocol, func(t *testing.T) {
+			spec := &model.NodeSpec{
+				Protocol:   protocol,
+				ServerPort: 443,
+				Network:    "tcp",
+				TLS:        1,
+				Camouflage: &model.CamouflageSpec{
+					SiteDir:    "/srv/camouflage",
+					SocketPath: "/run/xboard-node/camouflage.sock",
+				},
+			}
+			inbound := buildInbound(spec, testUsers, kernel.TLSCert{})
+			settings, ok := inbound["settings"].(M)
+			if !ok {
+				t.Fatalf("settings missing: %v", inbound)
+			}
+			fallbacks, ok := settings["fallbacks"].([]M)
+			if !ok || len(fallbacks) != 1 {
+				t.Fatalf("fallbacks = %v, want one entry", settings["fallbacks"])
+			}
+			if fallbacks[0]["dest"] != spec.Camouflage.SocketPath || fallbacks[0]["type"] != "unix" {
+				t.Fatalf("fallback = %v", fallbacks[0])
+			}
+		})
+	}
+}
+
+func TestBuildInbound_CamouflageSkippedForUnsupportedTransport(t *testing.T) {
+	spec := &model.NodeSpec{
+		Protocol:   "vless",
+		ServerPort: 443,
+		Network:    "ws",
+		TLS:        1,
+		Camouflage: &model.CamouflageSpec{SiteDir: "/srv/camouflage", SocketPath: "/run/camo.sock"},
+	}
+	inbound := buildInbound(spec, testUsers, kernel.TLSCert{})
+	settings, ok := inbound["settings"].(M)
+	if !ok {
+		t.Fatalf("settings missing: %v", inbound)
+	}
+	if _, has := settings["fallbacks"]; has {
+		t.Fatalf("ws node must not get a TCP fallback: %v", settings)
+	}
+}

@@ -277,6 +277,7 @@ func buildVLESS(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.TL
 	}
 
 	applyStreamSettings(base, nc, tc)
+	applyCamouflage(base, nc)
 	return base
 }
 
@@ -305,7 +306,35 @@ func buildTrojan(base M, nc *model.NodeSpec, users []model.UserSpec, tc kernel.T
 		applyStreamSettings(base, &forced, tc)
 	}
 
+	applyCamouflage(base, nc)
 	return base
+}
+
+// applyCamouflage points the inbound's fallback at the local decoy site.
+// Xray only supports fallbacks on TLS-terminated TCP inbounds for VLESS and
+// Trojan; other protocols and transports keep their own behaviour.
+func applyCamouflage(base M, nc *model.NodeSpec) {
+	if nc == nil || nc.Camouflage == nil || nc.Camouflage.SocketPath == "" {
+		return
+	}
+	if !nc.SupportsCamouflage() {
+		return
+	}
+	settings, ok := base["settings"].(M)
+	if !ok {
+		return
+	}
+	if nc.Protocol == "vless" {
+		if decryption, _ := settings["decryption"].(string); decryption != "none" {
+			// Xray rejects fallbacks together with any decryption other than none.
+			return
+		}
+	}
+	settings["fallbacks"] = []M{{
+		"dest": nc.Camouflage.SocketPath,
+		"type": "unix",
+		"xver": 0,
+	}}
 }
 
 type ss2022Config struct {

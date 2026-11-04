@@ -560,3 +560,32 @@ func TestInheritFrom_AutoTLSInheritedWhenChildHasNoCertConfig(t *testing.T) {
 		t.Error("auto_tls should be inherited when child has no cert config")
 	}
 }
+
+func TestCamouflageDefaultsAndInheritance(t *testing.T) {
+	parent := &Config{
+		Camouflage: &CamouflageConfig{Enabled: true, Template: 4},
+	}
+	child := &Config{}
+	child.inheritFrom(parent)
+	if child.Camouflage == nil || !child.Camouflage.Enabled || child.Camouflage.Template != 4 {
+		t.Fatalf("camouflage was not inherited: %#v", child.Camouflage)
+	}
+	if child.Camouflage == parent.Camouflage {
+		t.Fatal("camouflage pointer was shared between instances")
+	}
+
+	child.setDefaultsFrom(t.TempDir())
+	if child.Camouflage.SiteDir == "" {
+		t.Fatal("site_dir default was not applied")
+	}
+	if child.Camouflage.TemplateBaseURL != DefaultCamouflageTemplateBaseURL {
+		t.Fatalf("template base URL = %q", child.Camouflage.TemplateBaseURL)
+	}
+}
+
+func TestCamouflageTemplateValidation(t *testing.T) {
+	cfg := &Config{Camouflage: &CamouflageConfig{Enabled: true, Template: 10}}
+	if err := cfg.validate(); err == nil {
+		t.Fatal("template 10 must be rejected")
+	}
+}

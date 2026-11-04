@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/cedar2025/xboard-node/internal/camo"
 	"github.com/cedar2025/xboard-node/internal/cert"
 	"github.com/cedar2025/xboard-node/internal/cert/dnsproviders"
 	"github.com/cedar2025/xboard-node/internal/config"
@@ -92,6 +93,10 @@ func (s *Service) prepareTarget(ctx context.Context, spec *model.NodeSpec, users
 		plan.Config.CertDir = autoCertificateDir(s.cfg)
 	}
 
+	if err := s.attachCamouflage(snapshot, selection.Kernel); err != nil {
+		return nil, fmt.Errorf("camouflage: %w", err)
+	}
+
 	target := &preparedTarget{
 		spec:         snapshot,
 		users:        model.CloneUserSpecs(users),
@@ -133,6 +138,37 @@ func (s *Service) prepareTarget(ctx context.Context, spec *model.NodeSpec, users
 		return nil, fmt.Errorf("kernel %s rejected the target config: %w", selection.Kernel, err)
 	}
 	return target, nil
+}
+
+// attachCamouflage deploys the decoy site and records its unix socket in the
+// snapshot when the target can fall back to it. Unsupported targets are left
+// untouched; camouflage never changes which protocols a node serves.
+func (s *Service) attachCamouflage(spec *model.NodeSpec, kernelType string) error {
+	if s.cfg == nil || s.cfg.Camouflage == nil || !s.cfg.Camouflage.Enabled {
+		return nil
+	}
+	if kernelType != model.KernelXray {
+		s.logf("debug", "camouflage skipped: kernel has no inbound fallback", "kernel", kernelType)
+		return nil
+	}
+	if !spec.SupportsCamouflage() {
+		s.logf("debug", "camouflage skipped: protocol or transport does not support fallbacks",
+			"protocol", spec.Protocol, "network", spec.Network, "tls", spec.TLS)
+		return nil
+	}
+	request := camo.DeployRequest{
+		SiteDir:         s.cfg.Camouflage.SiteDir,
+		Template:        s.cfg.Camouflage.Template,
+		TemplateBaseURL: s.cfg.Camouflage.TemplateBaseURL,
+	}
+	if err := camo.Deploy(request); err != nil {
+		return err
+	}
+	spec.Camouflage = &model.CamouflageSpec{
+		SiteDir:    request.SiteDir,
+		SocketPath: filepath.Join(s.cfg.Kernel.ConfigDir, "camouflage.sock"),
+	}
+	return nil
 }
 
 // managed reports whether the panel owns this node's configuration. Only
