@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -30,11 +31,24 @@ func (r *recordingSink) ReportDevices(_ controlplane.PushClient, devices map[int
 func (r *recordingSink) SupportsReporting() bool     { return true }
 func (r *recordingSink) SupportsDeviceReports() bool { return true }
 
-func newDeviceTestService(push controlplane.PushClient) (*Service, *recordingSink) {
-	s := newTestService(&fakeKernel{})
+type connectedPushClient struct{}
+
+func (connectedPushClient) Run(ctx context.Context)           { <-ctx.Done() }
+func (connectedPushClient) IsConnected() bool                 { return true }
+func (connectedPushClient) SendDeviceReport(map[int][]string) {}
+
+type disconnectedPushClient struct{}
+
+func (disconnectedPushClient) Run(ctx context.Context)           { <-ctx.Done() }
+func (disconnectedPushClient) IsConnected() bool                 { return false }
+func (disconnectedPushClient) SendDeviceReport(map[int][]string) {}
+
+func newDeviceTestService(t *testing.T, push controlplane.PushClient) (*Service, *recordingSink) {
+	t.Helper()
+	s := newTestService(t, newTestKernels())
 	sink := &recordingSink{}
 	s.sink = sink
-	s.source = &countingSource{}
+	s.source = &fakeSource{}
 	s.tracker = tracker.New()
 	s.wsClient = push
 	s.tracker.Process(nil, map[int]map[string]bool{7: {"1.1.1.1": true}}, 1)
@@ -45,7 +59,7 @@ func newDeviceTestService(push controlplane.PushClient) (*Service, *recordingSin
 // them and only pushes global device state back after a device report, so a
 // quiet node must keep reporting an unchanged device set.
 func TestDeviceReportResendsUnchangedDevices(t *testing.T) {
-	s, sink := newDeviceTestService(connectedPushClient{})
+	s, sink := newDeviceTestService(t, connectedPushClient{})
 
 	s.reportDevices()
 	s.reportDevices()
@@ -61,7 +75,7 @@ func TestDeviceReportResendsUnchangedDevices(t *testing.T) {
 }
 
 func TestReportLeavesDevicesToConnectedDeviceChannel(t *testing.T) {
-	s, sink := newDeviceTestService(connectedPushClient{})
+	s, sink := newDeviceTestService(t, connectedPushClient{})
 
 	s.pushReportSync()
 
@@ -76,7 +90,7 @@ func TestReportLeavesDevicesToConnectedDeviceChannel(t *testing.T) {
 func TestReportCarriesDevicesWithoutDeviceChannel(t *testing.T) {
 	for name, push := range map[string]controlplane.PushClient{"rest": nil, "ws down": disconnectedPushClient{}} {
 		t.Run(name, func(t *testing.T) {
-			s, sink := newDeviceTestService(push)
+			s, sink := newDeviceTestService(t, push)
 
 			s.pushReportSync()
 			s.pushReportSync()

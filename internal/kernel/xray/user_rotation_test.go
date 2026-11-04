@@ -215,7 +215,7 @@ func TestXrayUUIDRotationKeepsTrafficOnSameUser(t *testing.T) {
 	}
 }
 
-func TestXrayUpdateUsersReturnsActualAddFailure(t *testing.T) {
+func TestXrayUpdateUsersRecoversFromAddFailure(t *testing.T) {
 	old := model.UserSpec{ID: 1, UUID: rotationOldUUID}
 	conflicting := model.UserSpec{ID: 2, UUID: rotationOtherUUID}
 	x, _ := newRotationXray(t, []model.UserSpec{old})
@@ -230,19 +230,18 @@ func TestXrayUpdateUsersReturnsActualAddFailure(t *testing.T) {
 	if err := um.AddUser(context.Background(), mu); err != nil {
 		t.Fatal(err)
 	}
-	added, removed, err := x.UpdateUsers([]model.UserSpec{old, conflicting})
-	if err == nil {
-		t.Fatal("real Xray duplicate-user error was swallowed")
+	// The native add fails with a duplicate-user error, so the kernel rebuilds
+	// from the desired set instead of leaving a mixed account table behind.
+	_, _, err = x.UpdateUsers([]model.UserSpec{old, conflicting})
+	if err != nil {
+		t.Fatalf("recovered update returned error: %v", err)
 	}
-	if added != 0 || removed != 0 {
-		t.Fatalf("failed addition counted as success: +%d -%d", added, removed)
-	}
-	if len(x.users) != 1 || x.users[0] != old {
-		t.Fatal("failed update advanced the applied user cache")
+	if len(x.users) != 2 || x.users[0] != old || x.users[1] != conflicting {
+		t.Fatalf("applied user cache = %v, want the desired set", x.users)
 	}
 }
 
-func TestXrayUpdateUsersReturnsActualRemoveFailure(t *testing.T) {
+func TestXrayUpdateUsersForgivesAlreadyRemovedAccount(t *testing.T) {
 	old := model.UserSpec{ID: 1, UUID: rotationOldUUID}
 	other := model.UserSpec{ID: 2, UUID: rotationOtherUUID}
 	x, _ := newRotationXray(t, []model.UserSpec{old, other})
@@ -253,14 +252,13 @@ func TestXrayUpdateUsersReturnsActualRemoveFailure(t *testing.T) {
 	if err := um.RemoveUser(context.Background(), userEmail(old.ID)); err != nil {
 		t.Fatal(err)
 	}
-	added, removed, err := x.UpdateUsers([]model.UserSpec{other})
-	if err == nil {
-		t.Fatal("real Xray missing-user removal error was swallowed")
+	// The record was already gone; the manager proves it absent, so the stale
+	// removal is not an error and the desired set is still applied.
+	_, _, err = x.UpdateUsers([]model.UserSpec{other})
+	if err != nil {
+		t.Fatalf("already-absent removal returned error: %v", err)
 	}
-	if added != 0 || removed != 0 {
-		t.Fatalf("failed removal counted as success: +%d -%d", added, removed)
-	}
-	if len(x.users) != 2 {
-		t.Fatal("failed removal advanced the applied user cache")
+	if len(x.users) != 1 || x.users[0] != other {
+		t.Fatalf("applied user cache = %v, want only the surviving user", x.users)
 	}
 }

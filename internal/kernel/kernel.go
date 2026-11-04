@@ -52,6 +52,10 @@ type Kernel interface {
 	Capabilities() Capabilities
 
 	// ─── Lifecycle ──────────────────────────────────────────────────────
+	// Validate builds the complete runtime configuration for the target and
+	// parses it the way Start would, without binding a listener or touching a
+	// running instance.
+	Validate(nodeConfig *model.NodeSpec, users []model.UserSpec, tls TLSCert) error
 	// Start initialises the kernel with the given node config and initial
 	// user set, binds listeners, and begins accepting connections.
 	// Calling Start on an already-running kernel stops the old instance first.
