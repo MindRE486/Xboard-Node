@@ -688,6 +688,14 @@ func normalizeBaseURL(raw string) (string, string, error) {
 }
 
 func (c *Config) validate() error {
+	// Node types are part of the panel query string and are matched
+	// case-insensitively by panels, so normalize every source (file, env,
+	// nodes: entries) to the lower-case form here.
+	c.Panel.NodeType = strings.ToLower(strings.TrimSpace(c.Panel.NodeType))
+	for i := range c.Nodes {
+		c.Nodes[i].NodeType = strings.ToLower(strings.TrimSpace(c.Nodes[i].NodeType))
+	}
+
 	if c.IsStandalone() {
 		if err := c.validateStandalone(); err != nil {
 			return err
@@ -797,7 +805,7 @@ func (c *Config) ExpandMachineNode(nodeID int, nodeType string) *Config {
 	nodeCfg := *c
 	nodeCfg.Nodes = nil
 	nodeCfg.Panel.NodeID = nodeID
-	nodeCfg.Panel.NodeType = nodeType
+	nodeCfg.Panel.NodeType = strings.ToLower(strings.TrimSpace(nodeType))
 	nodeCfg.Panel.Token = c.Machine.Token
 	nodeCfg.Panel.MachineID = c.Machine.MachineID
 
