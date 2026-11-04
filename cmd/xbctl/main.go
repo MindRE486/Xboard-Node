@@ -34,7 +34,7 @@ const (
 	openRCLogPath             = "/var/log/xboard-node.log"
 	openRCErrLogPath          = "/var/log/xboard-node.err"
 	defaultInstallRoot        = "/etc/xboard-node"
-	downloadBase              = "https://github.com/cedar2025/xboard-node/releases"
+	downloadBase              = "https://github.com/MindRE486/Xboard-Node/releases"
 )
 
 var (
@@ -1285,7 +1285,7 @@ func latestInstanceID(instances []*config.Config) string {
 func regenerateServiceFile() error {
 	unit := fmt.Sprintf(`[Unit]
 Description=Xboard Node Backend
-Documentation=https://github.com/cedar2025/xboard-node
+Documentation=https://github.com/MindRE486/Xboard-Node
 After=network-online.target
 Wants=network-online.target
 

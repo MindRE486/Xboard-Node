@@ -40,7 +40,7 @@ DEFAULT_ACTION="install"
 DEFAULT_RELEASE_VERSION="latest"
 DEFAULT_LOG_LEVEL="info"
 DEFAULT_KERNEL_LOG_LEVEL="warn"
-DEFAULT_DOWNLOAD_BASE="https://github.com/cedar2025/xboard-node/releases"
+DEFAULT_DOWNLOAD_BASE="https://github.com/MindRE486/Xboard-Node/releases"
 
 ACTION="${DEFAULT_ACTION}"
 MODE=""
@@ -951,7 +951,7 @@ render_systemd_service() {
     cat >"$TMP_DIR/${STAGED_SERVICE}" <<EOF_UNIT
 [Unit]
 Description=Xboard Node Backend
-Documentation=https://github.com/cedar2025/xboard-node
+Documentation=https://github.com/MindRE486/Xboard-Node
 After=network-online.target
 Wants=network-online.target
 
